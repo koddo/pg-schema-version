@@ -318,8 +318,9 @@ def migrate_up_to_target(target):
         conn.commit()
         with open( os.path.join(logs_dir, f.filename + '.log'), 'a' ) as log:        # TODO: conf this and below
             try:
-                # http://petereisentraut.blogspot.ru/2010/03/running-sql-scripts-with-psql.html
-                error_code = subprocess.check_call([cfg('misc', 'psql_path', default='psql'),
+                timestamp = datetime.datetime.now(tz=pytz.utc)
+                log.write("\n----- " + timestamp + " -----\n")
+                error_code = subprocess.check_call([cfg('misc', 'psql_path', default='psql'),   # http://petereisentraut.blogspot.ru/2010/03/running-sql-scripts-with-psql.html
                                                     ## '--quiet',
                                                     '--echo-all',
                                                     '--no-psqlrc',
