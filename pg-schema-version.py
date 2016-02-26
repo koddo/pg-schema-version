@@ -367,19 +367,21 @@ def cli(debug):
 
 @cli.command()
 def local():
-    """list files in LooseVersion order"""
+    """just list files in LooseVersion order"""
     print_files_sorted_by_looseversion()
     
 @cli.command()
 @click.argument('version')
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def baseline(version, conf):   # TODO: pass version _or_ file here
+    """well, 0 is a good candidate"""
     read_conf_and_connect_to_db(conf)
     baseline_after_some_checks(version)
     
 @cli.command()
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def info(conf):
+    """list applied migrations and unapplied files"""
     read_conf_and_connect_to_db(conf)
     check_everything()
     pretty_table()
@@ -387,6 +389,7 @@ def info(conf):
 @cli.command()
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def validate(conf):
+    """applied migrations must be untouched"""
     read_conf_and_connect_to_db(conf)
     check_everything()
     
@@ -394,10 +397,22 @@ def validate(conf):
 @click.argument('target')
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def migrate(target, conf):
+    """migrate every file up to target version"""
     read_conf_and_connect_to_db(conf)
     check_everything()
     migrate_up_to_target(target)
 
+@cli.command()
+@click.option('--conf', default=DEFAULT_CONF_FILE)
+def psql(conf):
+    """run psql with current configuration"""
+    read_conf_and_connect_to_db(conf)
+    error_code = subprocess.check_call([cfg('misc', 'psql_path', default='psql'),
+                                        conn_str])
+
+
+
+    
 if __name__ == '__main__':
     cli()
 
