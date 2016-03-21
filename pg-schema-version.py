@@ -285,7 +285,7 @@ def check_everything():
                                             if f.filename not in applied_migrations_filenames_set and
                                             (LooseVersion(baseline.version) < LooseVersion(f.version) < LooseVersion(last_applied_version))]
     if unapplied_files_before_last_version:
-        error_print("there are unapplied files which and between baseline and last applied migration", unapplied_files_before_last_version)
+        error_print("there are unapplied files between baseline and last applied migration", unapplied_files_before_last_version)
         sys.exit(1)
 
 def migrate_up_to_target(target):
@@ -322,7 +322,7 @@ def migrate_up_to_target(target):
             try:
                 timestamp = datetime.datetime.now(tz=pytz.utc)
                 log.write("\n----- " + str(timestamp) + " -----\n")
-                log.flush()   # without this the timestamp can simetimes go after the log entry below
+                log.flush()   # without this the timestamp can sometimes go after the log entry below
                 error_code = subprocess.check_call([cfg('misc', 'psql_path', default='psql'),   # http://petereisentraut.blogspot.ru/2010/03/running-sql-scripts-with-psql.html
                                                     ## '--quiet',
                                                     '--echo-all',
