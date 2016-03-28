@@ -24,6 +24,9 @@ from collections import namedtuple
 DEFAULT_CONF_FILE = os.path.splitext( os.path.basename(__file__) )[0] + '.conf'   # script name - .py  + .conf
 DEFAULT_SCHEMA = 'public'
 DEFAULT_TABLE = 'pg_schema_version'
+MIGRATION_FILES_PATTERN = "V*__*.sql"
+TEST_FILES_PATTERN =      "V*__*.pgtap"
+
 
 BASELINE_STR = "------------baseline------------"
 
@@ -40,11 +43,9 @@ create table {}.{} (
 );"""
 
 def pretty_table():
-    unapplied_files = [ f   for f in files
-                        if f.filename not in applied_migrations_filenames_set ]
     # pt = PrettyTable( list(MyAppliedMigrationTuple._fields) )
     pt = PrettyTable(['filename', 'installed_rank', 'installed_by', 'installed_date', 'execution_time', 'success', 'checksum'])
-    tbl = sorted( applied_migrations + unapplied_files + [baseline],   # sorting is stable, showing baseline after a migration with same version
+    tbl = sorted( applied_migrations + pending_files + [baseline],   # sorting is stable, showing baseline after a migration with same version
                   key = lambda x: LooseVersion(x.version))   # http://stackoverflow.com/questions/11887762/how-to-compare-version-style-strings
     for r in tbl:
         i = r._asdict()
@@ -129,7 +130,10 @@ def is_baseline(migration):
         and migration.checksum is None
 
 def print_files_sorted_by_looseversion():
-    files = sorted(glob.glob("V*__*.sql"),
+    migration_files = glob.glob(MIGRATION_FILES_PATTERN)
+    test_files = glob.glob(TEST_FILES_PATTERN)
+    
+    files = sorted(migration_files + test_files,
                    key = lambda x: LooseVersion(version_from_filename(x)))
     for f in files:
         print(f)
@@ -190,9 +194,12 @@ def baseline_after_some_checks(version):
 
 def check_everything():
     global files
+    global tests
     global baseline
     global applied_migrations
     global applied_migrations_filenames_set
+    global list_of_tests_to_run
+    global pending_files
     global last_applied_version
     global MyAppliedMigrationTuple
 
@@ -202,10 +209,18 @@ def check_everything():
 
     MyFileTuple = namedtuple('MyFileTuple', 'filename checksum version')
     unsorted_files = [ MyFileTuple(filename=f, checksum=md5sum(f), version=version_from_filename(f))
-                       for f in glob.glob("V*__*.sql") ]
+                       for f in glob.glob(MIGRATION_FILES_PATTERN) ]
     files = sorted(unsorted_files,
                    key = lambda x: LooseVersion(x.version))
     debug_print("files:", files)
+
+    MyTestTuple = namedtuple('MyTestTuple', 'filename version')
+    unsorted_tests = [ MyTestTuple(filename=f, version=version_from_filename(f))
+                       for f in glob.glob(TEST_FILES_PATTERN) ]
+    tests = sorted(unsorted_tests,
+                   key = lambda x: LooseVersion(x.version))
+    debug_print("tests:", tests)
+
 
     # ---------- check there are no files with same version
     seen = set()
@@ -276,24 +291,50 @@ def check_everything():
         error_print("there are migrations which were applied out of order")   # TODO: conf force allow
         sys.exit(1)
 
-    # ---------- make sure there are no unapplied files which and between baseline and last applied migration
+    # ---------- make sure there are no pending files between baseline and last applied migration
     last_applied_migration = max(applied_migrations + [baseline],
                                  key = lambda x: LooseVersion(x.version))
     last_applied_version = last_applied_migration.version
     applied_migrations_filenames_set = { m.filename    for m in applied_migrations }
-    unapplied_files_before_last_version = [ f   for f in files
+    pending_files_before_last_version = [ f   for f in files
                                             if f.filename not in applied_migrations_filenames_set and
                                             (LooseVersion(baseline.version) < LooseVersion(f.version) < LooseVersion(last_applied_version))]
-    if unapplied_files_before_last_version:
-        error_print("there are unapplied files between baseline and last applied migration", unapplied_files_before_last_version)
+    if pending_files_before_last_version:
+        error_print("there are pending files between baseline and last applied migration", pending_files_before_last_version)
         sys.exit(1)
 
+
+    # ---------- prepare for further actions
+    pending_files = [ f   for f in files
+                      if LooseVersion(last_applied_version) < LooseVersion(f.version) ]
+
+    if pending_files:
+        first_pending_file = min(pending_files, key = lambda x: LooseVersion(x.version))
+    else:
+        first_pending_file = None
+    list_of_tests_to_run = tests_between_migrations(last_applied_version, first_pending_file.version)
+
+
+def tests_between_migrations(from_version, up_to_not_including_version):
+    if up_to_not_including_version:
+        lst = [ t   for t in tests
+                if LooseVersion(from_version) <= LooseVersion(t.version) < LooseVersion(up_to_not_including_version) ]
+    else:
+        lst = [ t   for t in tests
+                if LooseVersion(from_version) <= LooseVersion(t.version) ]
+    return lst
+
+
+    
+def latest_tests():
+    debug_print("tests:", list_of_tests_to_run)
+
+    
+        
 def migrate_up_to_target(target):
     global applied_files
     
     # check target exists
-    pending_files = [ f   for f in files
-                      if LooseVersion(f.version) > LooseVersion(last_applied_version)]
     if not any( target == f.filename   for f in files ):
         error_print("target doesn't exist")
         sys.exit(1)
@@ -312,8 +353,13 @@ def migrate_up_to_target(target):
 
     logs_dir = cfg('misc', 'logs_dir', default='logs')
     os.makedirs(logs_dir, exist_ok=True)
+
+    ### example of how to get next value in a loop
+    # for i, item in enumerate(l):
+    #     next_i = i+1
+    #     print(l[next_i])   if next_i<len(l)   else print('none')
     
-    for f in files_to_apply:
+    for i, f in enumerate(files_to_apply):
         cur.execute(INSERT_STATEMENT.format( cfg('misc', 'schema', default=DEFAULT_SCHEMA),
                                              cfg('misc', 'table',  default=DEFAULT_TABLE)),
                     (f.filename, f.checksum, 0, "Administrator", 0, False))
@@ -381,7 +427,7 @@ def baseline(version, conf):   # TODO: pass version _or_ file here
 @cli.command()
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def info(conf):
-    """list applied migrations and unapplied files"""
+    """list applied migrations and pending files"""
     read_conf_and_connect_to_db(conf)
     check_everything()
     pretty_table()
@@ -392,6 +438,14 @@ def validate(conf):
     """applied migrations must be untouched"""
     read_conf_and_connect_to_db(conf)
     check_everything()
+    
+@cli.command()
+@click.option('--conf', default=DEFAULT_CONF_FILE)
+def test(conf):
+    """run tests between last applied and next migrations"""
+    read_conf_and_connect_to_db(conf)
+    check_everything()
+    latest_tests()
     
 @cli.command()
 @click.argument('target')
