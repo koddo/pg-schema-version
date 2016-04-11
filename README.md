@@ -62,3 +62,10 @@ so we have to do this before tests
 ```
 \pset format unaligned
 ```
+
+misc
+====================
+
+TODO: handle file doesn't exist error 
+
+

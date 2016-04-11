@@ -30,7 +30,8 @@ TEST_FILES_PATTERN =      "V*__*.pgtap"
 
 BASELINE_STR = "------------baseline------------"
 
-CREATE_TABLE_STATEMENT = """
+SET_ROLE_STATEMENT = "set role admin_role;"     # TODO: conf
+CREATE_TABLE_STATEMENT = SET_ROLE_STATEMENT + """
 create table {}.{} (
   filename          text   primary key,
   checksum          text,
@@ -43,9 +44,11 @@ create table {}.{} (
 );"""
 
 def pretty_table():
+    files_before_baseline = [ f   for f in files
+                              if LooseVersion(f.version) <= LooseVersion(baseline.version) ]
     # pt = PrettyTable( list(MyAppliedMigrationTuple._fields) )
     pt = PrettyTable(['filename', 'installed_rank', 'installed_by', 'installed_date', 'execution_time', 'success', 'checksum'])
-    tbl = sorted( applied_migrations + pending_files + [baseline],   # sorting is stable, showing baseline after a migration with same version
+    tbl = sorted( files_before_baseline + [baseline] + applied_migrations + pending_files,   # sorting is stable, showing baseline after a migration with same version
                   key = lambda x: LooseVersion(x.version))   # http://stackoverflow.com/questions/11887762/how-to-compare-version-style-strings
     for r in tbl:
         i = r._asdict()
@@ -309,10 +312,10 @@ def check_everything():
                       if LooseVersion(last_applied_version) < LooseVersion(f.version) ]
 
     if pending_files:
-        first_pending_file = min(pending_files, key = lambda x: LooseVersion(x.version))
+        first_pending_file_version = min(pending_files, key = lambda x: LooseVersion(x.version)).version
     else:
-        first_pending_file = None
-    list_of_tests_to_run = tests_between_migrations(last_applied_version, first_pending_file.version)
+        first_pending_file_version = None
+    list_of_tests_to_run = tests_between_migrations(last_applied_version, first_pending_file_version)
 
 
 def tests_between_migrations(from_version, up_to_not_including_version):
@@ -415,6 +418,7 @@ def cli(debug):
 def local():
     """just list files in LooseVersion order"""
     print_files_sorted_by_looseversion()
+
     
 @cli.command()
 @click.argument('version')
@@ -431,7 +435,7 @@ def info(conf):
     read_conf_and_connect_to_db(conf)
     check_everything()
     pretty_table()
-    
+
 @cli.command()
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def validate(conf):
@@ -456,14 +460,20 @@ def migrate(target, conf):
     check_everything()
     migrate_up_to_target(target)
 
-@cli.command()
+@cli.command(context_settings=dict(
+    ignore_unknown_options=True,
+    allow_extra_args=True
+))
 @click.option('--conf', default=DEFAULT_CONF_FILE)
 def psql(conf):
     """run psql with current configuration"""
     read_conf_and_connect_to_db(conf)
-    error_code = subprocess.check_call([cfg('misc', 'psql_path', default='psql'),
-                                        conn_str])
 
+    i = sys.argv.index("psql")
+    args_for_psql = sys.argv[i+1:]
+    error_code = subprocess.check_call([cfg('misc', 'psql_path', default='psql'),
+                                        conn_str]
+                                       + args_for_psql)
 
 
     
