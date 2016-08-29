@@ -388,7 +388,7 @@ def migrate_up_to_target(target):
             except subprocess.CalledProcessError as e:
                 error_print('error while calling psql: %s' % (str(e)))
                 sys.exit(1)
-        print('done %s, psql cmd error code: %s' % (f.filename, error_code))
+        print('done %s, psql cmd code: %s' % (f.filename, error_code))
         
         if error_code == 0:
             cur.execute(UPDATE_STATEMENT.format( cfg('misc', 'schema', default=DEFAULT_SCHEMA),
@@ -475,8 +475,6 @@ def psql(conf):
                                         conn_str]
                                        + args_for_psql)
 
-
-    
 if __name__ == '__main__':
     cli()
 
